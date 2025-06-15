@@ -1,0 +1,47 @@
+
+import flask import Flask, jsonify
+from flask_sqlalchemy import SQLAlchemy
+
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///example.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db = SQLAlchemy(app)
+
+# Model definition
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), nullable=False)
+
+# Create the tables
+@app.before_first_request
+def create_tables():
+    db.create_all()
+
+# Route to create a user
+@app.route('/create/<name>')
+def create_user(name):
+    user = User(name=name)
+    db.session.add(user)
+    db.session.commit()
+    return f"User {name} created."
+
+# Route to get all users
+@app.route('/users')
+def get_users():
+    users = User.query.all()  # Uses db.session internally
+    return jsonify([{'id': u.id, 'name': u.name} for u in users])
+
+# Route to demonstrate multiple queries
+@app.route('/double')
+def double_query():
+    user1 = User.query.first()
+    user2 = User.query.filter_by(name='Alice').first()
+    return jsonify({
+        'first_user': user1.name if user1 else None,
+        'alice': user2.name if user2 else None
+    })
+
+if __name__ == '__main__':
+    app.run(debug=True, threaded=True)
+
