@@ -3,48 +3,336 @@
 <head>
   <title>URL Shortener</title>
   <style>
-    body { font-family: sans-serif; padding: 20px; }
-    input, button { padding: 8px; font-size: 1em; }
-    ul { padding-left: 1em; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      padding: 40px;
+      background-color: #f4f4f4;
+      color: #333;
+    }
+
+    h1, h2 {
+      text-align: center;
+      margin-bottom: 1em;
+    }
+
+    form {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 30px;
+    }
+
+    input {
+      padding: 10px;
+      width: 300px;
+      font-size: 1em;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+
+    button {
+      padding: 10px 20px;
+      font-size: 1em;
+      background-color: #007BFF;
+      border: none;
+      border-radius: 6px;
+      color: white;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    ul {
+      list-style-type: none;
+      padding: 0;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    li {
+      background: white;
+      padding: 20px;
+      margin-bottom: 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+
+    li a {
+      text-decoration: none;
+      color: #007BFF;
+    }
+
+    li img {
+      display: block;
+      max-width: 100%;
+      border-radius: 8px;
+      margin: 10px 0;
+    }
+
+    li h3 {
+      margin: 10px 0 0;
+    }
+
+    .main-container {
+      display: flex;
+      gap: 40px;
+      align-items: flex-start;
+    }
+
+    .content {
+      flex: 2;
+    }
+
+    .sidebar {
+      flex: 1;
+      background: #fff;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      max-width: 350px;
+    }
+
+    .sidebar ul {
+      list-style-type: none;
+      padding: 0;
+    }
+
+    .sidebar li {
+      margin-bottom: 16px;
+    }
+
   </style>
 </head>
 <body>
   <h1>URL Shortener</h1>
-  <form id="shorten-form">
-    <input type="text" id="url-input" placeholder="Enter a URL..." required>
-    <button type="submit">Shorten</button>
-  </form>
 
-  <h2>5 most recent Shortened URLs:</h2>
-  <ul id="url-list"></ul>
+  <div class="main-container">
+    <!-- Main content -->
+    <div class="content">
+      <form id="shorten-form">
+        <input type="text" id="url-input" placeholder="Enter a URL..." required>
+        <button type="submit">Shorten</button>
+      </form>
 
+      <h2>5 Most Recent Shortened URLs</h2>
+      <ul id="url-list"></ul>
+    </div>
+
+    <!-- Sidebar for Top K URLs -->
+    <div class="sidebar">
+      <h2>Top 5 Most Clicked</h2>
+      <ul id="topk-list"></ul>
+    </div>
+  </div>
+
+
+  <!-- event listner for button submission logic -->
   <script>
+    const apiKey = 'dad8784f3757c9dd7306cba0f50b57f9';
     const form = document.getElementById('shorten-form');
     const input = document.getElementById('url-input');
     const list = document.getElementById('url-list');
 
+    //listner for SHORTENING URL
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const url = input.value;
 
-      const res = await fetch('/shorten', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url }),
-      });
+      try {
+        const res = await fetch("/shorten", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ url }),
+        });
 
-      const data = await res.json(); // array of { short_url }
-      list.innerHTML = ''; // clear and repopulate
-      data.forEach(item => {
-        const li = document.createElement('li');
-        li.innerHTML = `<a href="${item.short_url}" target="_blank">${item.short_url}</a>`;
-        list.appendChild(li);
-      });
+        if (!res.ok) {
+          const message = await res.text(); // Use .text() for plain-text error
+          alert(`Server error: ${message}`);
+          return;
+        }
 
-      input.value = '';
+        const data = await res.json();
+        list.innerHTML = ''; // clear and repopulate
+        let flag = true
+        data.forEach(item => {
+          const li = document.createElement('li');
+          let targetUrl = item.short_url + "/preview"
+
+          // li.innerHTML = `<a href="${item.short_url}" target="_blank">${item.short_url}</a>`;
+          fetch(targetUrl)
+          .then(res => {
+            if (!res.ok) {
+              if (flag == true){
+                alert(`Server error: ${res.status}`);
+                flag=false
+              }
+              return;
+            }
+            return res.json();
+          })
+          .then(resolved => {
+            const original = resolved.short_url
+            return fetch(`https://api.linkpreview.net/?key=${apiKey}&q=${encodeURIComponent(original)}`)
+          })
+          .then(res => {
+            if (!res.ok){
+              li.innerHTML = `<a href="${item.short_url}" target ="_blank">${item.short_url}</a>
+                              No Preview Available!`
+              return
+            }
+            return res.json()
+          })
+          .then(data => {
+            li.innerHTML = `
+              <a href="${item.short_url}" target="_blank">${item.short_url}</a>
+              ${data.title}
+              <a href="${data.url}" target="_blank">
+                <img src="${data.image}" alt="${data.title}" style="width:500px">
+              </a>
+            `;
+          });
+          list.appendChild(li);
+        })
+
+        input.value = '';
+
+      } catch (err) {
+        alert(`Fetch failed: ${err.message}`);
+      }
+
     });
   </script>
+
+
+  <!-- function that gets and updates recently generated links -->
+  <script>
+
+    function sleep(ms) { // random helper function for testing async
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    //listner for page load
+    async function loadRecentUrls() {
+      try {
+        // await sleep(5000)
+        const res = await fetch("/recents");
+        if (!res.ok) {
+          const message = await res.text();
+          console.error(`Failed to load recent URLs: ${message}`);
+          return;
+        }
+        const data = await res.json();
+        list.innerHTML = ''; // clear and repopulate
+        let flag = true
+
+        if (data == null) {
+          const li = document.createElement('li');
+          li.innerHTML = `No URLs in the database yet, be the first one to add some!`;
+          list.appendChild(li);
+          return
+        }
+
+
+        data.forEach(item => {
+          const li = document.createElement('li');
+          let targetUrl = item.short_url + "/preview"
+
+          // li.innerHTML = `<a href="${item.short_url}" target="_blank">${item.short_url}</a>`;
+          fetch(targetUrl)
+          .then(res => {
+            if (!res.ok) {
+              if (flag == true){
+                alert(`Server error: ${res.status}`);
+                flag=false
+              }
+              return;
+            }
+            return res.json();
+          })
+          .then(resolved => {
+            const original = resolved.short_url
+            return fetch(`https://api.linkpreview.net/?key=${apiKey}&q=${encodeURIComponent(original)}`)
+          })
+          .then(res => {
+            if (!res.ok){
+              li.innerHTML = `<a href="${item.short_url}" target ="_blank">${item.short_url}</a>
+                              No Preview Available!`
+              return
+            }
+            return res.json()
+          })
+          .then(data => {
+            li.innerHTML = `
+              <a href="${item.short_url}" target ="_blank">${item.short_url}</a>
+              ${data.title}
+              <a href="${data.url}" target="_blank">
+                <img src="${data.image}" alt="${data.title}" style="width:500px">
+              </a>
+            `;
+          });
+          list.appendChild(li);
+        })
+
+      } catch (err) {
+        console.error(`Fetch failed: ${err.message}`);
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', loadRecentUrls);
+  </script>
+
+
+  <!-- function that loads most recently clicked stuff on cache -->
+  <script>
+  async function loadTopK() {
+    try {
+      const res = await fetch("/mru",{
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json' // Set the request type
+        },
+        body: JSON.stringify({k:5})
+      });
+      if (!res.ok) {
+        const message = await res.text();
+        console.error(`Failed to load Top K: ${message}`);
+        return;
+      }
+
+      const data = await res.json();
+
+      console.log(data);
+      
+      const topKList = document.getElementById("topk-list");
+      topKList.innerHTML = "";
+
+      if (!data || data.length === 0) {
+        const li = document.createElement("li");
+        li.textContent = "No links have been visited yet!";
+        topKList.appendChild(li);
+        return;
+      }
+
+      data.forEach(item => {
+        const li = document.createElement("li");
+        li.innerHTML = `<a href="${item.short_url}" target="_blank">${item.short_url}</a> — Clicks: ${item.count}`;
+        topKList.appendChild(li);
+      });
+    } catch (err) {
+      console.error(`Fetch failed: ${err.message}`);
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    // loadRecentUrls();
+    loadTopK(); // load Top K on startup
+  });
+</script>
+
 </body>
-</html>
+</html> 
