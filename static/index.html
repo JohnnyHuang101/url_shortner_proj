@@ -117,13 +117,13 @@
         <button type="submit">Shorten</button>
       </form>
 
-      <h2>5 Most Recent Shortened URLs</h2>
+      <h2>Most Recent Generations!</h2>
       <ul id="url-list"></ul>
     </div>
 
     <!-- Sidebar for Top K URLs -->
     <div class="sidebar">
-      <h2>Top 5 Most Clicked</h2>
+      <h2>Top 5 Most Visited!</h2>
       <ul id="topk-list"></ul>
     </div>
   </div>
@@ -156,50 +156,8 @@
           return;
         }
 
-        const data = await res.json();
-        list.innerHTML = ''; // clear and repopulate
-        let flag = true
-        data.forEach(item => {
-          const li = document.createElement('li');
-          let targetUrl = item.short_url + "/preview"
-
-          // li.innerHTML = `<a href="${item.short_url}" target="_blank">${item.short_url}</a>`;
-          fetch(targetUrl)
-          .then(res => {
-            if (!res.ok) {
-              if (flag == true){
-                alert(`Server error: ${res.status}`);
-                flag=false
-              }
-              return;
-            }
-            return res.json();
-          })
-          .then(resolved => {
-            const original = resolved.short_url
-            return fetch(`https://api.linkpreview.net/?key=${apiKey}&q=${encodeURIComponent(original)}`)
-          })
-          .then(res => {
-            if (!res.ok){
-              li.innerHTML = `<a href="${item.short_url}" target ="_blank">${item.short_url}</a>
-                              No Preview Available!`
-              return
-            }
-            return res.json()
-          })
-          .then(data => {
-            li.innerHTML = `
-              <a href="${item.short_url}" target="_blank">${item.short_url}</a>
-              ${data.title}
-              <a href="${data.url}" target="_blank">
-                <img src="${data.image}" alt="${data.title}" style="width:500px">
-              </a>
-            `;
-          });
-          list.appendChild(li);
-        })
-
-        input.value = '';
+        await loadRecentUrls(); // Refresh the list after shortening
+        input.value = ''; 
 
       } catch (err) {
         alert(`Fetch failed: ${err.message}`);
@@ -242,7 +200,6 @@
           const li = document.createElement('li');
           let targetUrl = item.short_url + "/preview"
 
-          // li.innerHTML = `<a href="${item.short_url}" target="_blank">${item.short_url}</a>`;
           fetch(targetUrl)
           .then(res => {
             if (!res.ok) {
@@ -261,7 +218,10 @@
           .then(res => {
             if (!res.ok){
               li.innerHTML = `<a href="${item.short_url}" target ="_blank">${item.short_url}</a>
-                              No Preview Available!`
+                              No Preview Available!
+                              <button style="background-color: red; color: white;" class='delete-btn'>Delete</button>`
+              list.appendChild(li);
+              addDeleteListener(li, item.short_url);
               return
             }
             return res.json()
@@ -273,9 +233,11 @@
               <a href="${data.url}" target="_blank">
                 <img src="${data.image}" alt="${data.title}" style="width:500px">
               </a>
+              <button style="background-color: red; color: white;" class='delete-btn'>Delete</button>
             `;
+            addDeleteListener(li, item.short_url);
+            list.appendChild(li);
           });
-          list.appendChild(li);
         })
 
       } catch (err) {
@@ -286,6 +248,27 @@
     window.addEventListener('DOMContentLoaded', loadRecentUrls);
   </script>
 
+
+  <script>
+    function addDeleteListener(li, shortUrl) {
+    const btn = li.querySelector('.delete-btn');
+    if (!btn) return;
+
+    const id = new URL(shortUrl).pathname.split('/').pop();
+
+    btn.addEventListener('click', () => {
+      fetch(`/delete/${id}`, { method: 'GET' })
+        .then(res => {
+          if (res.ok) {
+            li.remove();
+          } else {
+            console.error('Failed to delete:', id);
+          }
+        })
+        .catch(err => console.error(err));
+    });
+  }
+  </script>
 
   <!-- function that loads most recently clicked stuff on cache -->
   <script>
@@ -318,11 +301,30 @@
         return;
       }
 
-      data.forEach(item => {
+      for (const item of data) {
         const li = document.createElement("li");
-        li.innerHTML = `<a href="${item.short_url}" target="_blank">${item.short_url}</a> — Clicks: ${item.count}`;
+        try {
+          const previewRes = await fetch(`https://api.linkpreview.net/?key=${apiKey}&q=${encodeURIComponent(item.original)}`);
+          
+          if (!previewRes.ok) {
+            li.innerHTML = `<a href="${item.hashed}" target="_blank">${item.hashed}</a> — Visits: ${item.count} (No Preview Available right now!)`;
+          } else {
+            const previewData = await previewRes.json();
+            li.innerHTML = `
+              <a href="${item.hashed}" target="_blank">${item.hashed}</a> — Visits: ${item.count}<br>
+              <strong>${previewData.title}</strong><br>
+              <a href="${previewData.url}" target="_blank">
+                <img src="${previewData.image}" alt="${previewData.title}" style="width:500px">
+              </a>
+            `;
+          }
+        } catch (err) {
+          console.error(`Failed to fetch preview for ${item.url}: ${err.message}`);
+          li.innerHTML = `<a href="${item.url}" target="_blank">${item.url}</a> — Visits: ${item.count} Fetch preview connection failed!`;
+        }
+
         topKList.appendChild(li);
-      });
+      }
     } catch (err) {
       console.error(`Fetch failed: ${err.message}`);
     }

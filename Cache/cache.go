@@ -1,12 +1,14 @@
 package cache
 
 import (
+	"sort"
 	"sync"
 )
 
 type CacheEntry struct {
-	URL   string `json:"url"`
-	Count int    `json:"count"`
+	Original string `json:"original"`
+	Hashed   string `json:"hashed"`
+	Count    int    `json:"count"`
 }
 
 type Cache struct {
@@ -31,14 +33,15 @@ func (c *Cache) Get(key string) (string, bool) {
 
 	c.data.Store(key, entry)
 
-	return entry.URL, ok
+	return entry.Original, ok
 }
 
 func (c *Cache) Set(key string, value string) {
 
 	entry := CacheEntry{
-		URL:   value,
-		Count: 1,
+		Original: value,
+		Hashed:   "http://localhost:8080/r/" + key,
+		Count:    1,
 	}
 
 	c.data.Store(key, entry)
@@ -49,47 +52,24 @@ func (c *Cache) Delete(key string) {
 }
 
 func (c *Cache) TopK(howmany int) []CacheEntry {
+	var entries []CacheEntry
 
-	var topK []CacheEntry
-	count := 0
+	// Collect all entries
 	c.data.Range(func(_, value any) bool {
-		if count >= howmany {
-			return false
-		}
-
 		entry := value.(CacheEntry)
-		topK = append(topK, entry)
-		count++
-		return true // continue iteration
+		entries = append(entries, entry)
+		return true
 	})
 
-	c.data.Range(func(_, value any) bool {
-
-		entry := value.(CacheEntry)
-
-		found := false
-		for _, e := range topK {
-			if e.URL == entry.URL {
-				found = true
-				break
-			}
-		}
-		if found {
-			return true
-		}
-
-		minIndex := 0
-		for i := 1; i < len(topK); i++ {
-			if topK[i].Count < topK[minIndex].Count {
-				minIndex = i
-			}
-		}
-
-		if topK[minIndex].Count < entry.Count {
-			topK[minIndex] = entry
-		}
-		return true // continue iteration
+	// Sort entries by Count in descending order
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Count > entries[j].Count
 	})
 
-	return topK
+	// Limit to top K
+	if len(entries) > howmany {
+		entries = entries[:howmany]
+	}
+
+	return entries
 }

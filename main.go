@@ -51,6 +51,7 @@ func main() {
 	r.HandleFunc("/r/{code}", redirectHandler)
 	r.HandleFunc("/r/{code}/preview", withCORS(preview))
 	r.HandleFunc("/mru", withCORS(mru))
+	r.HandleFunc("/delete/{code}", withCORS(delete))
 
 	c = cache.NewCache()
 	fmt.Println("Server running on http://localhost:8080")
@@ -167,25 +168,25 @@ func shortenHandler(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 	fmt.Println("Data successfully entered into DB")
-	var list []ShortenResponse
+	// var list []ShortenResponse
 
-	rows, err := db.Query("SELECT hashcode FROM urls ORDER BY id DESC LIMIT 5")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer rows.Close()
+	// rows, err := db.Query("SELECT hashcode FROM urls ORDER BY id DESC LIMIT 5")
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// defer rows.Close()
 
-	for rows.Next() {
+	// for rows.Next() {
 
-		var code string
-		if err := rows.Scan(&code); err != nil {
-			log.Fatal(err)
-		}
+	// 	var code string
+	// 	if err := rows.Scan(&code); err != nil {
+	// 		log.Fatal(err)
+	// 	}
 
-		list = append(list, ShortenResponse{
-			ShortURL: fmt.Sprintf("http://localhost:8080/r/%s", code),
-		})
-	}
+	// 	list = append(list, ShortenResponse{
+	// 		ShortURL: fmt.Sprintf("http://localhost:8080/r/%s", code),
+	// 	})
+	// }
 
 	// if err = rows.Err(); err != nil {
 	// 	log.Fatal(err)
@@ -201,9 +202,9 @@ func shortenHandler(w http.ResponseWriter, r *http.Request) {
 	// 	ShortURL: fmt.Sprintf("http://localhost:8080/r/%s", code),
 	// }
 
-	w.Header().Set("Content-Type", "application/json")
+	// w.Header().Set("Content-Type", "application/json")
 
-	json.NewEncoder(w).Encode(list)
+	// json.NewEncoder(w).Encode(list)
 }
 
 func redirectHandler(w http.ResponseWriter, r *http.Request) {
@@ -223,7 +224,7 @@ func redirectHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil { //could be not found or db connection refused etc.
 
 		if err == sql.ErrNoRows {
-			http.Error(w, "The original url has been lost due to database degredation! ", http.StatusBadRequest)
+			http.Error(w, "The original url has been deleted by you or another user! ", http.StatusBadRequest)
 			return
 		}
 		log.Fatal(err)
@@ -272,7 +273,7 @@ func preview(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 
 		if err == sql.ErrNoRows { // couldnt find stored URL
-			http.Error(w, "The original url has been lost due to database degredation!", http.StatusBadRequest)
+			http.Error(w, "The original url has been deleted by you or another user!", http.StatusBadRequest)
 			return
 		}
 		http.Error(w, "Something went wrong in the database", http.StatusBadRequest)
@@ -304,4 +305,37 @@ func mru(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	json.NewEncoder(w).Encode(list)
+}
+
+func delete(w http.ResponseWriter, r *http.Request) {
+
+	code := mux.Vars(r)["code"]
+
+	status, err := db.Prepare("DELETE FROM urls WHERE hashcode = ?")
+	if err != nil {
+		http.Error(w, "Error preparing delete statement", http.StatusInternalServerError)
+		return
+	}
+
+	defer status.Close()
+
+	res, err := status.Exec(code) // assuming you want to delete user with ID = 1
+
+	if err != nil {
+		http.Error(w, "Error executing delete statement", http.StatusInternalServerError)
+		return
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		http.Error(w, "Error getting rows affected", http.StatusInternalServerError)
+		return
+	}
+	if rowsAffected == 0 {
+		http.Error(w, "No URL found with the given code", http.StatusNotFound)
+		return
+	}
+
+	fmt.Fprintf(w, "URL with code %s deleted successfully", code)
+	c.Delete(code) // Remove from cache as well
+	return
 }
