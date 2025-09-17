@@ -104,6 +104,11 @@
       margin-bottom: 16px;
     }
 
+    .new-url {
+      background-color: #d1ffd6; /* light green flash */
+      transition: background-color 2s ease;
+    }
+
   </style>
 </head>
 <body>
@@ -135,6 +140,26 @@
     const form = document.getElementById('shorten-form');
     const input = document.getElementById('url-input');
     const list = document.getElementById('url-list');
+    const ws = new WebSocket(`ws://${window.location.host}/ws`);
+
+
+    
+    ws.addEventListener("message", event => {
+      const item = JSON.parse(event.data);
+
+      const li = document.createElement('li');
+      li.innerHTML = `<a href="${item.short_url}" target="_blank">${item.short_url}</a>`;
+      
+      // Add a highlight animation class
+      li.classList.add("new-url");
+
+      list.prepend(li);
+
+      // Remove the highlight after 2s
+      setTimeout(() => li.classList.remove("new-url"), 2000);
+    });
+
+
 
     //listner for SHORTENING URL
     form.addEventListener('submit', async (e) => {
@@ -156,7 +181,6 @@
           return;
         }
 
-        await loadRecentUrls(); // Refresh the list after shortening
         input.value = ''; 
 
       } catch (err) {
@@ -335,6 +359,8 @@
     loadTopK(); // load Top K on startup
   });
 </script>
+
+
 
 </body>
 </html> 

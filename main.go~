@@ -13,19 +13,9 @@ import (
 
 	"github.com/JohnnyHuang101/url-shortner/cache"
 	"github.com/gorilla/mux"
+	_"github.com/mattn/go-sqlite3"
 	"github.com/gorilla/websocket"
-	_ "github.com/mattn/go-sqlite3"
 )
-
-type ShortenRequest struct {
-	URL string `json:"url"`
-}
-type ShortenResponse struct {
-	ShortURL string `json:"short_url"`
-}
-type K struct {
-	K int `json:"k"`
-}
 
 var db *sql.DB
 var c *cache.Cache
@@ -46,7 +36,6 @@ func main() {
 			url TEXT NOT NULL
 		);
 	`)
-
 	defer db.Close()
 	if err != nil {
 		log.Fatal(err)
@@ -56,85 +45,18 @@ func main() {
 
 	// Serve static files
 	r.Handle("/", http.FileServer(http.Dir("./static")))
+
 	// API routes
 	r.HandleFunc("/shorten", withCORS(shortenHandler))
 	r.HandleFunc("/recents", withCORS(getRecents))
 	r.HandleFunc("/r/{code}", redirectHandler)
 	r.HandleFunc("/r/{code}/preview", withCORS(preview))
 	r.HandleFunc("/mru", withCORS(mru))
-	r.HandleFunc("/delete/{code}", withCORS(deleteURLHandler))
-	r.HandleFunc("/ws", withCORS(wsHandler))
+	r.HandleFunc("/delete/{code}", withCORS(delete))
+	r.HandleFunc("/ws",withCORS(wsHandler))
 	c = cache.NewCache()
-
-	//go routine seperate for hub controlling channels
-	go wsHub()
-
 	fmt.Println("Server running on http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", r))
-
-}
-
-var (
-	broadcast  = make(chan ShortenResponse)
-	register   = make(chan *websocket.Conn)
-	unregister = make(chan *websocket.Conn)
-	upgrader   = websocket.Upgrader{} //upgrader to websocvekt
-)
-
-// this is just for momeory safety
-func wsHub() {
-	clients := make(map[*websocket.Conn]bool)
-	for {
-		select {
-		case conn := <-register:
-			clients[conn] = true
-			fmt.Printf("Registering: %p\n", conn)
-		case conn := <-unregister:
-			fmt.Printf("Closing: %p\n", conn)
-			conn.Close()
-			delete(clients, conn)
-		case msg := <-broadcast:
-			data, err := json.Marshal(msg)
-
-			if err != nil {
-				log.Println("JSON marshal error:", err)
-				continue
-			}
-
-			for client := range clients {
-				fmt.Printf("Broadcasting to: %p\n", client)
-				err := client.WriteMessage(websocket.TextMessage, data)
-				if err != nil {
-					log.Println("WebSocket write error:", err)
-					client.Close()
-					delete(clients, client)
-				}
-			}
-		}
-	}
-}
-
-func wsHandler(w http.ResponseWriter, r *http.Request) {
-
-	conn, err := upgrader.Upgrade(w, r, nil)
-
-	if err != nil {
-		log.Println("Error cannot upgrade connection: ", err)
-		return
-	}
-	fmt.Println("Session successfully upgraded")
-	defer func() { unregister <- conn }()
-
-	register <- conn
-
-	for {
-		_, _, err := conn.ReadMessage()
-		if err != nil {
-			log.Println("Client disconnected:", err)
-			break
-		}
-	}
-
 }
 
 func getRecents(w http.ResponseWriter, r *http.Request) {
@@ -180,6 +102,16 @@ func isValidURL(rawURL string) bool {
 		return false
 	}
 	return true
+}
+
+type ShortenRequest struct {
+	URL string `json:"url"`
+}
+type ShortenResponse struct {
+	ShortURL string `json:"short_url"`
+}
+type K struct {
+	K int `json:"k"`
 }
 
 // func writeJSONError(w http.ResponseWriter, msg string, code int) {
@@ -237,14 +169,43 @@ func shortenHandler(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 	fmt.Println("Data successfully entered into DB")
+	// var list []ShortenResponse
 
-	broadcast_new_item := ShortenResponse{
-		ShortURL: fmt.Sprintf("http://localhost:8080/r/%s", code),
-	}
+	// rows, err := db.Query("SELECT hashcode FROM urls ORDER BY id DESC LIMIT 5")
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// defer rows.Close()
 
-	broadcast <- broadcast_new_item
+	// for rows.Next() {
 
-	w.WriteHeader(http.StatusOK)
+	// 	var code string
+	// 	if err := rows.Scan(&code); err != nil {
+	// 		log.Fatal(err)
+	// 	}
+
+	// 	list = append(list, ShortenResponse{
+	// 		ShortURL: fmt.Sprintf("http://localhost:8080/r/%s", code),
+	// 	})
+	// }
+
+	// if err = rows.Err(); err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	// for c := range urlStore {
+	// 	list = append(list, ShortenResponse{
+	// 		ShortURL: fmt.Sprintf("http://localhost:8080/r/%s", c),
+	// 	})
+	// }
+
+	// resp := ShortenResponse{
+	// 	ShortURL: fmt.Sprintf("http://localhost:8080/r/%s", code),
+	// }
+
+	// w.Header().Set("Content-Type", "application/json")
+
+	// json.NewEncoder(w).Encode(list)
 }
 
 func redirectHandler(w http.ResponseWriter, r *http.Request) {
@@ -347,7 +308,7 @@ func mru(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(list)
 }
 
-func deleteURLHandler(w http.ResponseWriter, r *http.Request) {
+func delete(w http.ResponseWriter, r *http.Request) {
 
 	code := mux.Vars(r)["code"]
 
@@ -378,4 +339,41 @@ func deleteURLHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "URL with code %s deleted successfully", code)
 	c.Delete(code) // Remove from cache as well
 	return
+}
+
+
+
+
+var upgrader = websocket.Upgrader{
+    CheckOrigin: func(r *http.Request) bool {
+        return true // allow all connections (for testing)
+    },
+}
+
+
+func wsHandler(w http.ResponseWriter, r *http.Request) {
+    conn, err := upgrader.Upgrade(w, r, nil)
+    if err != nil {
+        log.Println("Upgrade error:", err)
+        return
+    }
+    defer conn.Close()
+
+	for {
+		// Read message from client
+		messageType, message, err := conn.ReadMessage()
+		if err != nil {
+			log.Println("Read error:", err)
+			break
+		}
+
+		fmt.Printf("Received: %s\n", message)
+
+		// Echo message back to client
+		err = conn.WriteMessage(messageType, message)
+		if err != nil {
+			log.Println("Write error:", err)
+			break
+		}
+    }
 }
